@@ -112,14 +112,17 @@ export CTX_EU="gke_${PROJECT_ID}_europe-west4-a_gke-europe-west4"
 export CTX_ASIA="gke_${PROJECT_ID}_asia-northeast1-b_gke-asia-northeast1"
 ```
 
-`Qwen/Qwen3-8B` はゲートされていないため、Hugging Face トークンの設定は不要です。
+`Qwen/Qwen3-8B` はゲートされていないため、Hugging Face トークンの設定は不要です。ただし、多人数ラボでは Hugging Face の匿名ダウンロードが遅くなることがあります。講師側で公開 Cloud Storage ミラーを用意している場合は、その GCS URI を指定してください。
 
-### **2. モデルキャッシュ用マニフェストを生成する**
+### **2. モデル取得元を指定する**
 
 ```bash
 cd "$LAB_DIR/lab-02"
-envsubst '${PROJECT_ID}' < ksa_template.yaml > ksa.yaml
-envsubst '${PROJECT_ID}' < download-job_template.yaml > download-job.yaml
+
+# 推奨: 公開 GCS ミラーからコピーする場合
+export SOURCE_MODEL_GCS_URI="gs://YOUR_PUBLIC_BUCKET/qwen3-8b"
+
+# SOURCE_MODEL_GCS_URI を未設定にすると、Hugging Face から匿名ダウンロードします。
 ```
 
 ### **3. モデル重みを Cloud Storage バケットに保存する**
@@ -130,6 +133,7 @@ kubectl logs -f job/model-downloader --context=$CTX_ASIA
 ```
 
 `cache-model.sh` は両クラスタの kubeconfig を取得したうえで、Kubernetes ServiceAccount を両クラスタに作成し、モデルのダウンロード Job は Asia クラスタで実行します。
+`SOURCE_MODEL_GCS_URI` が設定されている場合、Job は公開 GCS ミラーから `${PROJECT_ID}-qwen-weights` バケットへコピーします。未設定の場合のみ Hugging Face から匿名ダウンロードします。
 
 `Download complete!` と表示されたら、`Ctrl+C` でログ表示を終了します。
 
