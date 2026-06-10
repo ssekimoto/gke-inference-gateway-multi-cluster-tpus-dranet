@@ -3,6 +3,8 @@ set -euo pipefail
 
 : "${CTX_ASIA:?Set CTX_ASIA before running this script.}"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LAB_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project)}"
 GATEWAY_CLASS="gke-l7-cross-regional-internal-managed-mc"
 CONFIG_CLUSTER="${CONFIG_CLUSTER:-gke-asia-northeast1}"
@@ -29,6 +31,23 @@ diagnose_gateway() {
   gcloud container fleet ingress describe --project="$PROJECT_ID" || true
 }
 
+ensure_fleet_connectivity() {
+  local fleet_state
+  fleet_state="$(mktemp)"
+  {
+    gcloud container fleet multi-cluster-services describe --project="$PROJECT_ID" || true
+    gcloud container fleet ingress describe --project="$PROJECT_ID" || true
+  } >"$fleet_state" 2>&1
+
+  if grep -q "description: Lost connection" "$fleet_state"; then
+    echo "Fleet reports Lost connection for one or more memberships."
+    echo "Repairing Fleet memberships by installing the Connect agent..."
+    PROJECT_ID="$PROJECT_ID" "$LAB_DIR/lab-01/repair-fleet-memberships.sh"
+  fi
+
+  rm -f "$fleet_state"
+}
+
 ensure_gateway_api() {
   if kubectl get gatewayclasses --context="$CTX_ASIA" >/dev/null 2>&1; then
     return
@@ -53,7 +72,7 @@ ensure_gateway_class() {
   echo "GatewayClass $GATEWAY_CLASS is not present on the config cluster."
   if kubectl get gateway cross-region-gateway --context="$CTX_ASIA" >/dev/null 2>&1; then
     echo "Deleting stale Gateway resources before resetting Fleet ingress..."
-    kubectl delete -f config-cluster.yaml --context="$CTX_ASIA" --ignore-not-found || true
+    kubectl delete -f "$SCRIPT_DIR/config-cluster.yaml" --context="$CTX_ASIA" --ignore-not-found || true
   fi
 
   echo "Re-enabling Fleet ingress for $CONFIG_MEMBERSHIP..."
@@ -102,11 +121,12 @@ ensure_inference_pool_import() {
 }
 
 ensure_gateway_api
+ensure_fleet_connectivity
 ensure_gateway_class
 ensure_inference_pool_import
 
 echo -e "\n=== Creating Cross-Regional Gateway Resources ==="
-kubectl apply -f config-cluster.yaml --context="$CTX_ASIA"
+kubectl apply -f "$SCRIPT_DIR/config-cluster.yaml" --context="$CTX_ASIA"
 
 echo -e "\n=== Provisioning Global Load Balancer (This takes 5-10 minutes) ==="
 echo "Working on the Gateway... waiting for Google Cloud to assign IPs and program routes..."
