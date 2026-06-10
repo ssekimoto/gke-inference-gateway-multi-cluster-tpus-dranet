@@ -18,6 +18,12 @@ resource "google_storage_bucket_iam_member" "gcs_fuse_sa_admin" {
   member = "serviceAccount:${google_service_account.gcs_fuse_sa.email}"
 }
 
+resource "google_storage_bucket_iam_member" "gcs_fuse_sa_bucket_reader" {
+  bucket = google_storage_bucket.model_bucket.name
+  role   = "roles/storage.legacyBucketReader"
+  member = "serviceAccount:${google_service_account.gcs_fuse_sa.email}"
+}
+
 resource "google_service_account_iam_member" "workload_identity_binding" {
   service_account_id = google_service_account.gcs_fuse_sa.name
   role               = "roles/iam.workloadIdentityUser"
