@@ -134,7 +134,7 @@ export SOURCE_MODEL_GCS_URI="gs://YOUR_PUBLIC_BUCKET/qwen3-8b"
 kubectl logs -f job/model-downloader --context=$CTX_ASIA --pod-running-timeout=10m
 ```
 
-`cache-model.sh` は両クラスタの kubeconfig を取得したうえで、Kubernetes ServiceAccount を両クラスタに作成し、モデルのダウンロード Job は Asia クラスタで実行します。
+`cache-model.sh` はラボ用バケットの IAM を確認したうえで、両クラスタの kubeconfig を取得し、Kubernetes ServiceAccount を両クラスタに作成します。モデルのダウンロード Job は Asia クラスタで実行します。
 `SOURCE_MODEL_GCS_URI` が設定されている場合、Job は公開 GCS ミラーから `${PROJECT_ID}-qwen-weights` バケットへ直接コピーします。未設定の場合のみ Hugging Face から匿名ダウンロードしたあと、同じバケットへアップロードします。
 
 進捗を別タブで確認する場合は、ラボ用 GCS バケットを直接見ます。
