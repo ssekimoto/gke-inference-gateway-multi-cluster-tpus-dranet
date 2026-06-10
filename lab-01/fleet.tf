@@ -44,20 +44,6 @@ resource "google_project_iam_member" "mci_sa_admin" {
   depends_on = [google_project_service_identity.mci_sa, time_sleep.wait_for_apis]
 }
 
-resource "google_gke_hub_membership" "memberships" {
-  provider      = google-beta
-  for_each      = toset(var.regions)
-  project       = var.project_id
-  membership_id = "gke-${each.value}"
-  authority {
-    issuer = "https://container.googleapis.com/v1/${google_container_cluster.clusters[each.value].id}"
-  }
-  endpoint {
-    gke_cluster { resource_link = "//container.googleapis.com/${google_container_cluster.clusters[each.value].id}" }
-  }
-  depends_on = [time_sleep.wait_for_apis, google_container_cluster.clusters]
-}
-
 resource "google_gke_hub_feature" "mcs" {
   provider   = google-beta
   name       = "multiclusterservicediscovery"
@@ -80,12 +66,12 @@ resource "google_gke_hub_feature" "ingress" {
   location = "global"
   project  = var.project_id
   depends_on = [
-    google_gke_hub_membership.memberships,
+    google_container_cluster.clusters,
     google_gke_hub_feature.mcs,
     google_project_iam_member.mci_sa_admin,
     google_project_iam_member.mcs_importer_network_viewer
   ]
   spec {
-    multiclusteringress { config_membership = "projects/${var.project_id}/locations/global/memberships/gke-asia-northeast1" }
+    multiclusteringress { config_membership = "projects/${var.project_id}/locations/asia-northeast1/memberships/gke-asia-northeast1" }
   }
 }

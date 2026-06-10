@@ -12,6 +12,7 @@ resource "google_container_cluster" "clusters" {
 
   release_channel { channel = "RAPID" }
   gateway_api_config { channel = "CHANNEL_STANDARD" }
+  fleet { project = var.project_id }
 
   ip_allocation_policy {
     cluster_ipv4_cidr_block  = ""
@@ -35,6 +36,7 @@ resource "google_container_cluster" "clusters" {
     google_compute_router_nat.egress_nat,
     google_compute_subnetwork.subnets,
     google_project_service.base_apis,
+    time_sleep.wait_for_apis,
     time_sleep.wait_for_gke_service_agent
   ]
 }

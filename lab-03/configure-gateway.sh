@@ -9,16 +9,17 @@ PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project)}"
 GATEWAY_CLASS="gke-l7-cross-regional-internal-managed-mc"
 CONFIG_CLUSTER="${CONFIG_CLUSTER:-gke-asia-northeast1}"
 CONFIG_CLUSTER_LOCATION="${CONFIG_CLUSTER_LOCATION:-asia-northeast1-b}"
+CONFIG_MEMBERSHIP_LOCATION="${CONFIG_MEMBERSHIP_LOCATION:-asia-northeast1}"
 CONFIG_MEMBERSHIP="${CONFIG_MEMBERSHIP:-}"
 
 if [[ -z "$CONFIG_MEMBERSHIP" ]]; then
   CONFIG_MEMBERSHIP=$(
     gcloud container fleet memberships list \
       --project="$PROJECT_ID" \
-      --format="value(name)" | grep "/memberships/${CONFIG_CLUSTER}$" | head -n 1 || true
+      --format="value(name)" | grep "/locations/${CONFIG_MEMBERSHIP_LOCATION}/memberships/${CONFIG_CLUSTER}$" | head -n 1 || true
   )
 fi
-CONFIG_MEMBERSHIP="${CONFIG_MEMBERSHIP:-projects/${PROJECT_ID}/locations/global/memberships/${CONFIG_CLUSTER}}"
+CONFIG_MEMBERSHIP="${CONFIG_MEMBERSHIP:-projects/${PROJECT_ID}/locations/${CONFIG_MEMBERSHIP_LOCATION}/memberships/${CONFIG_CLUSTER}}"
 
 diagnose_gateway() {
   echo
@@ -41,8 +42,9 @@ ensure_fleet_connectivity() {
 
   if grep -q "description: Lost connection" "$fleet_state"; then
     echo "Fleet reports Lost connection for one or more memberships."
-    echo "Repairing Fleet memberships by installing the Connect agent..."
+    echo "Repairing Fleet memberships by moving GKE clusters to regional memberships..."
     PROJECT_ID="$PROJECT_ID" "$LAB_DIR/lab-01/repair-fleet-memberships.sh"
+    CONFIG_MEMBERSHIP="projects/${PROJECT_ID}/locations/${CONFIG_MEMBERSHIP_LOCATION}/memberships/${CONFIG_CLUSTER}"
   fi
 
   rm -f "$fleet_state"
