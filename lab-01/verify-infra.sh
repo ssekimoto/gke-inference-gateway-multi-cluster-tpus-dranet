@@ -29,3 +29,7 @@ gcloud storage ls | grep "${PROJECT_ID}-qwen-weights"
 
 echo -e "\n=== Verifying GCS FUSE Service Account ==="
 gcloud iam service-accounts list --filter="email:gcs-fuse-sa@${PROJECT_ID}.iam.gserviceaccount.com" --project="$PROJECT_ID"
+
+echo -e "\n=== Verifying Fleet Multi-cluster Features ==="
+gcloud container fleet multi-cluster-services describe --project="$PROJECT_ID" || true
+gcloud container fleet ingress describe --project="$PROJECT_ID" || true

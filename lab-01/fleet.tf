@@ -2,11 +2,22 @@ data "google_project" "project" {
   project_id = var.project_id
 }
 
+locals {
+  mcs_importer_members = toset([
+    "serviceAccount:${var.project_id}.svc.id.goog[gke-mcs/gke-mcs-importer]",
+    "principal://iam.googleapis.com/projects/${data.google_project.project.number}/locations/global/workloadIdentityPools/${var.project_id}.svc.id.goog/subject/ns/gke-mcs/sa/gke-mcs-importer"
+  ])
+}
+
 resource "google_project_service" "fleet_apis" {
   for_each = toset([
+    "autoscaling.googleapis.com",
+    "connectgateway.googleapis.com",
+    "dns.googleapis.com",
     "gkehub.googleapis.com",
     "multiclusterservicediscovery.googleapis.com",
     "multiclusteringress.googleapis.com",
+    "networkservices.googleapis.com",
     "trafficdirector.googleapis.com"
   ])
   project            = var.project_id
@@ -38,6 +49,9 @@ resource "google_gke_hub_membership" "memberships" {
   for_each      = toset(var.regions)
   project       = var.project_id
   membership_id = "gke-${each.value}"
+  authority {
+    issuer = "https://container.googleapis.com/v1/${google_container_cluster.clusters[each.value].id}"
+  }
   endpoint {
     gke_cluster { resource_link = "//container.googleapis.com/${google_container_cluster.clusters[each.value].id}" }
   }
@@ -53,9 +67,10 @@ resource "google_gke_hub_feature" "mcs" {
 }
 
 resource "google_project_iam_member" "mcs_importer_network_viewer" {
+  for_each   = local.mcs_importer_members
   project    = var.project_id
   role       = "roles/compute.networkViewer"
-  member     = "serviceAccount:${var.project_id}.svc.id.goog[gke-mcs/gke-mcs-importer]"
+  member     = each.value
   depends_on = [google_gke_hub_feature.mcs]
 }
 

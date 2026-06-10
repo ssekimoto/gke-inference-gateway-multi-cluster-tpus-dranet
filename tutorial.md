@@ -99,6 +99,7 @@ gcloud container fleet memberships list --project=$PROJECT_ID
 ```
 
 `gke-europe-west4` と `gke-asia-northeast1` が表示されれば、マルチクラスタ構成の土台が整っています。
+`./verify-infra.sh` の Fleet feature 表示で `membershipStates` が `Lost connection` になっている場合は、Fleet からクラスタへ到達できていないため、Lab03 の `GatewayClass` や `qwen-pool` import が同期されません。`git pull` 後に `terraform apply -auto-approve` を再実行して、必要な API と Fleet membership の Workload Identity 設定を反映してください。
 
 ## **Lab02. モデルの重みをキャッシュし、vLLM ワークロードをデプロイする**
 

@@ -25,6 +25,7 @@ diagnose_gateway() {
   kubectl describe gateway cross-region-gateway --context="$CTX_ASIA" || true
   kubectl get gatewayclasses --context="$CTX_ASIA" || true
   kubectl get gcpinferencepoolimports.networking.gke.io --context="$CTX_ASIA" || true
+  gcloud container fleet multi-cluster-services describe --project="$PROJECT_ID" || true
   gcloud container fleet ingress describe --project="$PROJECT_ID" || true
 }
 
