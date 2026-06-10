@@ -11,7 +11,6 @@ declare -A TPU_ZONES=(
 for REGION in europe-west4 asia-northeast1; do
   ZONE="${TPU_ZONES[$REGION]}"
   CLUSTER="gke-${REGION}"
-  MEMBERSHIP="projects/${PROJECT_ID}/locations/global/memberships/${CLUSTER}"
   CTX="gke_${PROJECT_ID}_${ZONE}_${CLUSTER}"
 
   echo "Registering ${CLUSTER} with Fleet and installing Connect agent..."
@@ -19,7 +18,8 @@ for REGION in europe-west4 asia-northeast1; do
     --location="$ZONE" \
     --project="$PROJECT_ID"
 
-  gcloud container fleet memberships register "$MEMBERSHIP" \
+  gcloud container fleet memberships register "$CLUSTER" \
+    --location=global \
     --gke-cluster="${ZONE}/${CLUSTER}" \
     --install-connect-agent \
     --enable-workload-identity \
