@@ -6,9 +6,6 @@ metadata:
 spec:
   backoffLimit: 1
   template:
-    metadata:
-      annotations:
-        gke-gcsfuse/volumes: "true"
     spec:
       serviceAccountName: qwen-ksa
       restartPolicy: Never
@@ -23,31 +20,30 @@ spec:
         - -c
         - |
           set -euo pipefail
-          mkdir -p /data/qwen-weights
           SOURCE="${SOURCE_MODEL_GCS_URI:-}"
+          TARGET="gs://${PROJECT_ID}-qwen-weights"
+          WORKDIR="/tmp/qwen-weights"
 
           if [[ -n "$SOURCE" ]]; then
             echo "Copying Qwen3-8B from public GCS mirror: $SOURCE"
-            gcloud storage rsync "$SOURCE" /data/qwen-weights --recursive
+            echo "Target bucket: $TARGET"
+            gcloud storage rsync "$SOURCE" "$TARGET" --recursive
           else
             echo "SOURCE_MODEL_GCS_URI is not set. Falling back to anonymous Hugging Face download."
+            mkdir -p "$WORKDIR"
             python3 -m pip install --no-cache-dir -U huggingface_hub
-            python3 -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='Qwen/Qwen3-8B', local_dir='/data/qwen-weights')"
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='Qwen/Qwen3-8B', local_dir='$WORKDIR')"
+            gcloud storage rsync "$WORKDIR" "$TARGET" --recursive
           fi
 
-          test -f /data/qwen-weights/config.json || {
-            echo "Model copy finished, but /data/qwen-weights/config.json was not found."
+          gcloud storage ls "$TARGET/config.json" >/dev/null || {
+            echo "Model copy finished, but $TARGET/config.json was not found."
             echo "Set SOURCE_MODEL_GCS_URI to the directory that directly contains the model files."
-            find /data/qwen-weights -maxdepth 2 -type f | head -20
+            gcloud storage ls "$TARGET/**" | head -20
             exit 1
           }
+          gcloud storage ls "$TARGET/model-00005-of-00005.safetensors" >/dev/null
           echo "Download complete! Safe to proceed."
-        volumeMounts:
-        - name: gcs-fuse-volume
-          mountPath: /data/qwen-weights
-      volumes:
-      - name: gcs-fuse-volume
-        csi:
-          driver: gcsfuse.csi.storage.gke.io
-          volumeAttributes:
-            bucketName: "${PROJECT_ID}-qwen-weights"
+        resources:
+          requests:
+            ephemeral-storage: 30Gi
