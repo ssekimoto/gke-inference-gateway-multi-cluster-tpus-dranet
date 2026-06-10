@@ -30,6 +30,17 @@ resource "google_container_cluster" "clusters" {
     oauth_scopes = ["https://www.googleapis.com/auth/cloud-platform"]
     workload_metadata_config { mode = "GKE_METADATA" }
   }
+
+  depends_on = [
+    google_compute_subnetwork.subnets,
+    google_project_service.base_apis,
+    time_sleep.wait_for_gke_service_agent
+  ]
+}
+
+resource "time_sleep" "wait_for_workload_identity_pool" {
+  create_duration = "90s"
+  depends_on      = [google_container_cluster.clusters]
 }
 
 resource "google_container_node_pool" "tpu_pools" {
@@ -49,6 +60,8 @@ resource "google_container_node_pool" "tpu_pools" {
     labels       = { "cloud.google.com/gke-networking-dra-driver" = "true" }
     workload_metadata_config { mode = "GKE_METADATA" }
   }
+
+  depends_on = [time_sleep.wait_for_workload_identity_pool]
 
   lifecycle { ignore_changes = [node_config[0].labels] }
 }
