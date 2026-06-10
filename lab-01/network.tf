@@ -6,11 +6,12 @@ resource "google_compute_network" "vpc" {
 }
 
 resource "google_compute_subnetwork" "subnets" {
-  for_each      = toset(var.regions)
-  name          = "${var.network_prefix}-node-subnet"
-  region        = each.value
-  network       = google_compute_network.vpc.id
-  ip_cidr_range = each.value == "europe-west4" ? "10.0.1.0/24" : "10.0.2.0/24"
+  for_each                 = toset(var.regions)
+  name                     = "${var.network_prefix}-node-subnet"
+  region                   = each.value
+  network                  = google_compute_network.vpc.id
+  ip_cidr_range            = each.value == "europe-west4" ? "10.0.1.0/24" : "10.0.2.0/24"
+  private_ip_google_access = true
 }
 
 resource "google_compute_subnetwork" "proxy_subnets" {
@@ -29,6 +30,33 @@ resource "google_compute_address" "gateway_ips" {
   region       = each.value
   subnetwork   = google_compute_subnetwork.subnets[each.value].id
   address_type = "INTERNAL"
+}
+
+resource "google_compute_router" "nat_routers" {
+  for_each = toset(var.regions)
+  name     = "${var.network_prefix}-router-${each.value}"
+  region   = each.value
+  network  = google_compute_network.vpc.id
+}
+
+resource "google_compute_router_nat" "egress_nat" {
+  for_each = toset(var.regions)
+  name     = "${var.network_prefix}-nat-${each.value}"
+  router   = google_compute_router.nat_routers[each.value].name
+  region   = each.value
+
+  nat_ip_allocate_option             = "AUTO_ONLY"
+  source_subnetwork_ip_ranges_to_nat = "LIST_OF_SUBNETWORKS"
+
+  subnetwork {
+    name                    = google_compute_subnetwork.subnets[each.value].id
+    source_ip_ranges_to_nat = ["ALL_IP_RANGES"]
+  }
+
+  log_config {
+    enable = true
+    filter = "ERRORS_ONLY"
+  }
 }
 
 resource "google_compute_firewall" "allow_internal" {

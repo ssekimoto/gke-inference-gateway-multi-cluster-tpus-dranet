@@ -32,6 +32,7 @@ resource "google_container_cluster" "clusters" {
   }
 
   depends_on = [
+    google_compute_router_nat.egress_nat,
     google_compute_subnetwork.subnets,
     google_project_service.base_apis,
     time_sleep.wait_for_gke_service_agent

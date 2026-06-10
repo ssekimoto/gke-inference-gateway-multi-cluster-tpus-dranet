@@ -52,7 +52,7 @@ export LAB_DIR="$(pwd)"
 
 <walkthrough-tutorial-duration duration=40></walkthrough-tutorial-duration>
 
-このラボでは、カスタム VPC、Cloud Storage バケット、2 つの GKE Standard クラスタ、TPU v6e 1 チップノードのノードプール、Fleet 登録、マルチクラスタ サービス関連機能を作成します。
+このラボでは、カスタム VPC、Cloud NAT、Cloud Storage バケット、2 つの GKE Standard クラスタ、TPU v6e 1 チップノードのノードプール、Fleet 登録、マルチクラスタ サービス関連機能を作成します。
 
 ### **1. Terraform 変数を生成する**
 
@@ -87,6 +87,7 @@ terraform apply -auto-approve
 
 - `gke-europe-west4` と `gke-asia-northeast1` クラスタ
 - `tpu-gke-dranet-vpc` VPC
+- `tpu-gke-dranet-nat-*` Cloud NAT
 - `qwen-gateway-ip-*` の内部 IP
 - `${PROJECT_ID}-qwen-weights` Cloud Storage バケット
 - `gcs-fuse-sa` サービスアカウント
@@ -113,6 +114,7 @@ export CTX_ASIA="gke_${PROJECT_ID}_asia-northeast1-b_gke-asia-northeast1"
 ```
 
 `Qwen/Qwen3-8B` はゲートされていないため、Hugging Face トークンの設定は不要です。ただし、多人数ラボでは Hugging Face の匿名ダウンロードが遅くなることがあります。講師側で公開 Cloud Storage ミラーを用意している場合は、その GCS URI を指定してください。
+Terraform は各リージョンに Cloud NAT を作成するため、ノードに外部 IP がない環境でも `pip`、Hugging Face fallback、公開 Cloud Storage ミラーへの egress が利用できます。
 
 ### **2. モデル取得元を指定する**
 
