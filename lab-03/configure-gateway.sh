@@ -5,7 +5,18 @@ set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project)}"
 GATEWAY_CLASS="gke-l7-cross-regional-internal-managed-mc"
-CONFIG_MEMBERSHIP="projects/${PROJECT_ID}/locations/global/memberships/gke-asia-northeast1"
+CONFIG_CLUSTER="${CONFIG_CLUSTER:-gke-asia-northeast1}"
+CONFIG_CLUSTER_LOCATION="${CONFIG_CLUSTER_LOCATION:-asia-northeast1-b}"
+CONFIG_MEMBERSHIP="${CONFIG_MEMBERSHIP:-}"
+
+if [[ -z "$CONFIG_MEMBERSHIP" ]]; then
+  CONFIG_MEMBERSHIP=$(
+    gcloud container fleet memberships list \
+      --project="$PROJECT_ID" \
+      --format="value(name)" | grep "/memberships/${CONFIG_CLUSTER}$" | head -n 1 || true
+  )
+fi
+CONFIG_MEMBERSHIP="${CONFIG_MEMBERSHIP:-projects/${PROJECT_ID}/locations/global/memberships/${CONFIG_CLUSTER}}"
 
 diagnose_gateway() {
   echo
@@ -13,7 +24,24 @@ diagnose_gateway() {
   kubectl get gateway cross-region-gateway --context="$CTX_ASIA" -o wide || true
   kubectl describe gateway cross-region-gateway --context="$CTX_ASIA" || true
   kubectl get gatewayclasses --context="$CTX_ASIA" || true
+  kubectl get gcpinferencepoolimports.networking.gke.io --context="$CTX_ASIA" || true
   gcloud container fleet ingress describe --project="$PROJECT_ID" || true
+}
+
+ensure_gateway_api() {
+  if kubectl get gatewayclasses --context="$CTX_ASIA" >/dev/null 2>&1; then
+    return
+  fi
+
+  echo "Gateway API resources are not available on the config cluster. Enabling Gateway API..."
+  gcloud container clusters update "$CONFIG_CLUSTER" \
+    --location="$CONFIG_CLUSTER_LOCATION" \
+    --gateway-api=standard \
+    --project="$PROJECT_ID" \
+    --quiet
+  gcloud container clusters get-credentials "$CONFIG_CLUSTER" \
+    --location="$CONFIG_CLUSTER_LOCATION" \
+    --project="$PROJECT_ID"
 }
 
 ensure_gateway_class() {
@@ -22,15 +50,25 @@ ensure_gateway_class() {
   fi
 
   echo "GatewayClass $GATEWAY_CLASS is not present on the config cluster."
+  if kubectl get gateway cross-region-gateway --context="$CTX_ASIA" >/dev/null 2>&1; then
+    echo "Deleting stale Gateway resources before resetting Fleet ingress..."
+    kubectl delete -f config-cluster.yaml --context="$CTX_ASIA" --ignore-not-found || true
+  fi
+
   echo "Re-enabling Fleet ingress for $CONFIG_MEMBERSHIP..."
   gcloud container fleet ingress disable --project="$PROJECT_ID" --quiet || true
-  gcloud container fleet ingress enable \
+
+  if ! gcloud container fleet ingress enable \
     --config-membership="$CONFIG_MEMBERSHIP" \
     --project="$PROJECT_ID" \
-    --quiet
+    --quiet; then
+    echo "Fleet ingress enable did not observe the controller within the gcloud 2 minute wait."
+    echo "Continuing to poll GatewayClass because config cluster registration can take longer."
+    gcloud container fleet ingress describe --project="$PROJECT_ID" || true
+  fi
 
   echo "Waiting for GatewayClass $GATEWAY_CLASS to appear..."
-  for _ in {1..30}; do
+  for _ in {1..90}; do
     if kubectl get gatewayclass "$GATEWAY_CLASS" --context="$CTX_ASIA" >/dev/null 2>&1; then
       kubectl get gatewayclass "$GATEWAY_CLASS" --context="$CTX_ASIA"
       return
@@ -49,7 +87,7 @@ ensure_inference_pool_import() {
   fi
 
   echo "GCPInferencePoolImport qwen-pool is not present yet. Waiting for the export to sync..."
-  for _ in {1..30}; do
+  for _ in {1..90}; do
     if kubectl get gcpinferencepoolimports.networking.gke.io qwen-pool --context="$CTX_ASIA" >/dev/null 2>&1; then
       kubectl get gcpinferencepoolimports.networking.gke.io qwen-pool --context="$CTX_ASIA"
       return
@@ -62,6 +100,7 @@ ensure_inference_pool_import() {
   exit 1
 }
 
+ensure_gateway_api
 ensure_gateway_class
 ensure_inference_pool_import
 

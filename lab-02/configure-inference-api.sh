@@ -4,6 +4,7 @@ set -euo pipefail
 : "${CTX_EU:?Set CTX_EU before running this script.}"
 : "${CTX_ASIA:?Set CTX_ASIA before running this script.}"
 
+PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project)}"
 CRD_URL="https://raw.githubusercontent.com/kubernetes-sigs/gateway-api-inference-extension/v1.1.0/config/crd/bases/inference.networking.x-k8s.io_inferenceobjectives.yaml"
 
 for CTX in $CTX_EU $CTX_ASIA; do
@@ -38,7 +39,7 @@ for CTX in $CTX_EU $CTX_ASIA; do
 done
 
 echo "Waiting for exported qwen-pool to appear on the config cluster..."
-for _ in {1..30}; do
+for _ in {1..90}; do
   if kubectl get gcpinferencepoolimports.networking.gke.io qwen-pool --context="$CTX_ASIA" >/dev/null 2>&1; then
     kubectl get gcpinferencepoolimports.networking.gke.io qwen-pool --context="$CTX_ASIA"
     exit 0
@@ -46,6 +47,6 @@ for _ in {1..30}; do
   sleep 10
 done
 
-echo "ERROR: GCPInferencePoolImport qwen-pool did not appear on the config cluster."
-echo "Check Fleet ingress and multi-cluster service status before continuing to Lab03."
-exit 1
+echo "WARNING: GCPInferencePoolImport qwen-pool did not appear on the config cluster yet."
+echo "Lab03 will re-check the multi-cluster Gateway controller and wait for the import before creating the Gateway."
+gcloud container fleet ingress describe --project="$PROJECT_ID" || true
