@@ -129,6 +129,8 @@ envsubst '${PROJECT_ID}' < download-job_template.yaml > download-job.yaml
 kubectl logs -f job/model-downloader --context=$CTX_ASIA
 ```
 
+`cache-model.sh` は両クラスタの kubeconfig を取得したうえで、Kubernetes ServiceAccount を両クラスタに作成し、モデルのダウンロード Job は Asia クラスタで実行します。
+
 `Download complete!` と表示されたら、`Ctrl+C` でログ表示を終了します。
 
 ### **4. vLLM ワークロードを両クラスタにデプロイする**
