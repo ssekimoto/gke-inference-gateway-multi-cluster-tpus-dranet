@@ -44,6 +44,13 @@ resource "google_project_iam_member" "mci_sa_admin" {
   depends_on = [google_project_service_identity.mci_sa, time_sleep.wait_for_apis]
 }
 
+resource "google_project_iam_member" "mci_sa_service_agent" {
+  project    = var.project_id
+  role       = "roles/multiclusteringress.serviceAgent"
+  member     = "serviceAccount:${google_project_service_identity.mci_sa.email}"
+  depends_on = [google_project_service_identity.mci_sa, time_sleep.wait_for_apis]
+}
+
 resource "google_gke_hub_feature" "mcs" {
   provider   = google-beta
   name       = "multiclusterservicediscovery"
@@ -69,6 +76,7 @@ resource "google_gke_hub_feature" "ingress" {
     google_container_cluster.clusters,
     google_gke_hub_feature.mcs,
     google_project_iam_member.mci_sa_admin,
+    google_project_iam_member.mci_sa_service_agent,
     google_project_iam_member.mcs_importer_network_viewer
   ]
   spec {

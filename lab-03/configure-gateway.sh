@@ -42,7 +42,7 @@ ensure_fleet_connectivity() {
 
   if grep -q "description: Lost connection" "$fleet_state"; then
     echo "Fleet reports Lost connection for one or more memberships."
-    echo "Repairing Fleet memberships by moving GKE clusters to regional memberships..."
+    echo "Repairing Fleet memberships by installing/updating the Connect agent..."
     PROJECT_ID="$PROJECT_ID" "$LAB_DIR/lab-01/repair-fleet-memberships.sh"
     CONFIG_MEMBERSHIP="projects/${PROJECT_ID}/locations/${CONFIG_MEMBERSHIP_LOCATION}/memberships/${CONFIG_CLUSTER}"
   fi
@@ -50,12 +50,26 @@ ensure_fleet_connectivity() {
   rm -f "$fleet_state"
 }
 
-ensure_gateway_api() {
-  if kubectl get gatewayclasses --context="$CTX_ASIA" >/dev/null 2>&1; then
-    return
-  fi
+ensure_fleet_gateway_iam() {
+  local project_number
+  local mci_service_agent
+  local role
 
-  echo "Gateway API resources are not available on the config cluster. Enabling Gateway API..."
+  project_number="$(gcloud projects describe "$PROJECT_ID" --format="value(projectNumber)")"
+  mci_service_agent="service-${project_number}@gcp-sa-multiclusteringress.iam.gserviceaccount.com"
+
+  echo "Ensuring Multi Cluster Ingress service agent can manage GKE..."
+  for role in roles/container.admin roles/multiclusteringress.serviceAgent; do
+    gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+      --member="serviceAccount:${mci_service_agent}" \
+      --role="$role" \
+      --condition=None \
+      --quiet >/dev/null
+  done
+}
+
+ensure_gateway_api() {
+  echo "Ensuring Gateway API is enabled on the config cluster..."
   gcloud container clusters update "$CONFIG_CLUSTER" \
     --location="$CONFIG_CLUSTER_LOCATION" \
     --gateway-api=standard \
@@ -124,6 +138,7 @@ ensure_inference_pool_import() {
 
 ensure_gateway_api
 ensure_fleet_connectivity
+ensure_fleet_gateway_iam
 ensure_gateway_class
 ensure_inference_pool_import
 
