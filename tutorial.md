@@ -195,6 +195,7 @@ cd "$LAB_DIR/lab-03"
 ```
 
 Gateway のプログラム完了まで 5〜10 分ほどかかることがあります。
+このスクリプトは、Lab02 の `configure-inference-api.sh` で作成される `qwen-pool` import が存在するかを事前確認します。`GatewayClass` がまだ config cluster に同期されていない場合は、Fleet ingress を再有効化してから Gateway の作成を続行します。
 
 ### **2. Gateway の状態を確認する**
 

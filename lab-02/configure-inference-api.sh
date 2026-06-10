@@ -36,3 +36,16 @@ for CTX in $CTX_EU $CTX_ASIA; do
   kubectl get inferencepools --context="$CTX"
   kubectl get autoscalingmetrics tpu-cache --context="$CTX"
 done
+
+echo "Waiting for exported qwen-pool to appear on the config cluster..."
+for _ in {1..30}; do
+  if kubectl get gcpinferencepoolimports.networking.gke.io qwen-pool --context="$CTX_ASIA" >/dev/null 2>&1; then
+    kubectl get gcpinferencepoolimports.networking.gke.io qwen-pool --context="$CTX_ASIA"
+    exit 0
+  fi
+  sleep 10
+done
+
+echo "ERROR: GCPInferencePoolImport qwen-pool did not appear on the config cluster."
+echo "Check Fleet ingress and multi-cluster service status before continuing to Lab03."
+exit 1

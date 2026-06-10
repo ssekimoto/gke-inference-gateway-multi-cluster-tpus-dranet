@@ -52,12 +52,24 @@ resource "google_gke_hub_feature" "mcs" {
   depends_on = [time_sleep.wait_for_apis]
 }
 
-resource "google_gke_hub_feature" "ingress" {
-  provider   = google-beta
-  name       = "multiclusteringress"
-  location   = "global"
+resource "google_project_iam_member" "mcs_importer_network_viewer" {
   project    = var.project_id
-  depends_on = [google_gke_hub_membership.memberships, google_project_iam_member.mci_sa_admin]
+  role       = "roles/compute.networkViewer"
+  member     = "serviceAccount:${var.project_id}.svc.id.goog[gke-mcs/gke-mcs-importer]"
+  depends_on = [google_gke_hub_feature.mcs]
+}
+
+resource "google_gke_hub_feature" "ingress" {
+  provider = google-beta
+  name     = "multiclusteringress"
+  location = "global"
+  project  = var.project_id
+  depends_on = [
+    google_gke_hub_membership.memberships,
+    google_gke_hub_feature.mcs,
+    google_project_iam_member.mci_sa_admin,
+    google_project_iam_member.mcs_importer_network_viewer
+  ]
   spec {
     multiclusteringress { config_membership = "projects/${var.project_id}/locations/global/memberships/gke-asia-northeast1" }
   }
