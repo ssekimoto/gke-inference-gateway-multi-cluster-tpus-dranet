@@ -21,3 +21,13 @@ kubectl apply -f ksa.yaml --context="$CTX_ASIA"
 kubectl delete job model-downloader --context="$CTX_ASIA" --ignore-not-found
 kubectl wait --for=delete job/model-downloader --context="$CTX_ASIA" --timeout=120s 2>/dev/null || true
 kubectl apply -f download-job.yaml --context="$CTX_ASIA"
+
+echo
+echo "Model downloader Job created on $CTX_ASIA."
+if [[ -n "$SOURCE_MODEL_GCS_URI" ]]; then
+  echo "Source mirror: $SOURCE_MODEL_GCS_URI"
+else
+  echo "Source mirror is not set; the Job will use anonymous Hugging Face download."
+fi
+echo "Follow logs with:"
+echo "kubectl logs -f job/model-downloader --context=\$CTX_ASIA --pod-running-timeout=10m"

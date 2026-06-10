@@ -131,11 +131,19 @@ export SOURCE_MODEL_GCS_URI="gs://YOUR_PUBLIC_BUCKET/qwen3-8b"
 
 ```bash
 ./cache-model.sh
-kubectl logs -f job/model-downloader --context=$CTX_ASIA
+kubectl logs -f job/model-downloader --context=$CTX_ASIA --pod-running-timeout=10m
 ```
 
 `cache-model.sh` は両クラスタの kubeconfig を取得したうえで、Kubernetes ServiceAccount を両クラスタに作成し、モデルのダウンロード Job は Asia クラスタで実行します。
 `SOURCE_MODEL_GCS_URI` が設定されている場合、Job は公開 GCS ミラーから `${PROJECT_ID}-qwen-weights` バケットへコピーします。未設定の場合のみ Hugging Face から匿名ダウンロードします。
+
+`PodInitializing` が長く続く場合は、GCS FUSE sidecar の初期化状況を確認します。
+
+```bash
+POD=$(kubectl get pod -l job-name=model-downloader --context=$CTX_ASIA -o jsonpath='{.items[0].metadata.name}')
+kubectl describe pod "$POD" --context=$CTX_ASIA
+kubectl logs "$POD" -c gke-gcsfuse-sidecar --context=$CTX_ASIA --tail=100
+```
 
 `Download complete!` と表示されたら、`Ctrl+C` でログ表示を終了します。
 
