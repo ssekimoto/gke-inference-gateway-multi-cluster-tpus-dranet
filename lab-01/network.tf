@@ -24,12 +24,32 @@ resource "google_compute_subnetwork" "proxy_subnets" {
   role          = "ACTIVE"
 }
 
+resource "google_compute_subnetwork" "regional_proxy_subnets" {
+  for_each      = toset(var.regions)
+  name          = "${var.network_prefix}-regional-proxy-subnet-${each.value}"
+  region        = each.value
+  network       = google_compute_network.vpc.id
+  ip_cidr_range = each.value == "europe-west4" ? "10.2.1.0/24" : "10.2.2.0/24"
+  purpose       = "REGIONAL_MANAGED_PROXY"
+  role          = "ACTIVE"
+}
+
 resource "google_compute_address" "gateway_ips" {
   for_each     = toset(var.regions)
   name         = "qwen-gateway-ip-${each.value}"
   region       = each.value
   subnetwork   = google_compute_subnetwork.subnets[each.value].id
   address_type = "INTERNAL"
+  purpose      = "SHARED_LOADBALANCER_VIP"
+}
+
+resource "google_compute_address" "single_gateway_ips" {
+  for_each     = toset(var.regions)
+  name         = "qwen-single-gateway-ip-${each.value}"
+  region       = each.value
+  subnetwork   = google_compute_subnetwork.subnets[each.value].id
+  address_type = "INTERNAL"
+  purpose      = "SHARED_LOADBALANCER_VIP"
 }
 
 resource "google_compute_router" "nat_routers" {

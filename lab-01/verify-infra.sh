@@ -13,6 +13,10 @@ echo -e "\n=== Verifying Subnets and Private Google Access ==="
 gcloud compute networks subnets list --filter="name:tpu-gke-dranet-node-subnet" --project="$PROJECT_ID" \
   --format="table(name,region,ipCidrRange,privateIpGoogleAccess)"
 
+echo -e "\n=== Verifying Proxy Subnets ==="
+gcloud compute networks subnets list --filter="name:tpu-gke-dranet-proxy-subnet OR name:tpu-gke-dranet-regional-proxy-subnet" --project="$PROJECT_ID" \
+  --format="table(name,region,ipCidrRange,purpose,role)"
+
 echo -e "\n=== Verifying Cloud NAT ==="
 for REGION in europe-west4 asia-northeast1; do
   gcloud compute routers nats list \
@@ -22,7 +26,7 @@ for REGION in europe-west4 asia-northeast1; do
 done
 
 echo -e "\n=== Verifying Reserved Static IPs for Gateway ==="
-gcloud compute addresses list --filter="name~qwen-gateway-ip" --project="$PROJECT_ID"
+gcloud compute addresses list --filter="name~qwen-gateway-ip OR name~qwen-single-gateway-ip" --project="$PROJECT_ID"
 
 echo -e "\n=== Verifying GCS Bucket ==="
 gcloud storage ls | grep "${PROJECT_ID}-qwen-weights"

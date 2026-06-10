@@ -35,7 +35,7 @@ done
 for CTX in $CTX_EU $CTX_ASIA; do
   echo "Verifying Inference API resources on $CTX..."
   kubectl get inferencepools --context="$CTX"
-  kubectl get autoscalingmetrics tpu-cache --context="$CTX"
+  kubectl get autoscalingmetrics kv-cache --context="$CTX"
 done
 
 echo "Waiting for exported qwen-pool to appear on the config cluster..."

@@ -63,6 +63,6 @@ spec:
     balancingMode: CUSTOM_METRICS
     trafficDuration: LONG
     customMetrics:
-    - name: gke.named_metrics.tpu-cache
+    - name: gke.named_metrics.kv-cache
       dryRun: false
       maxUtilizationPercent: 60

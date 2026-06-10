@@ -54,6 +54,7 @@ spec:
         - -c
         - |
           export PYTHONUNBUFFERED=1
+          export VLLM_ALLOW_RUNTIME_LORA_UPDATING="${VLLM_ALLOW_RUNTIME_LORA_UPDATING:-False}"
           echo "Booting vLLM instantly from local GCS FUSE mount..."
 
           python3 -m vllm.entrypoints.openai.api_server \
@@ -64,7 +65,8 @@ spec:
             --max-model-len 4096 \
             --max-num-batched-tokens 1024 \
             --max-num-seqs 128 \
-            --port 8000
+            --port 8000 \
+            ${VLLM_EXTRA_ARGS}
         ports:
         - containerPort: 8000
         resources:

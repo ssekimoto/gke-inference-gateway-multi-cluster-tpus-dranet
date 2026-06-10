@@ -52,7 +52,7 @@ export LAB_DIR="$(pwd)"
 
 <walkthrough-tutorial-duration duration=40></walkthrough-tutorial-duration>
 
-このラボでは、カスタム VPC、Cloud NAT、Cloud Storage バケット、2 つの GKE Standard クラスタ、TPU v6e 1 チップノードのノードプール、Fleet 登録、マルチクラスタ サービス関連機能を作成します。
+このラボでは、カスタム VPC、Cloud NAT、Cloud Storage バケット、2 つの GKE Standard クラスタ、TPU v6e 1 チップノードのノードプール、Fleet 登録、マルチクラスタ サービス関連機能を作成します。任意の Lab04 で使うシングルクラスタ Gateway 用に、regional managed proxy subnet と専用の内部 IP も同時に作成します。
 
 ### **1. Terraform 変数を生成する**
 
@@ -89,6 +89,8 @@ terraform apply -auto-approve
 - `tpu-gke-dranet-vpc` VPC
 - `tpu-gke-dranet-nat-*` Cloud NAT
 - `qwen-gateway-ip-*` の内部 IP
+- `qwen-single-gateway-ip-*` の内部 IP
+- cross-region 用と regional 用の proxy subnet
 - `${PROJECT_ID}-qwen-weights` Cloud Storage バケット
 - `gcs-fuse-sa` サービスアカウント
 
@@ -178,7 +180,7 @@ done
 ./configure-inference-api.sh
 ```
 
-`InferenceObjective`、`AutoscalingMetric`、`InferencePool` が作成され、`qwen-pool` が両クラスタからエクスポートされます。
+`InferenceObjective`、`kv-cache` `AutoscalingMetric`、`InferencePool` が作成され、`qwen-pool` が両クラスタからエクスポートされます。
 
 この時点で、各リージョンに `vllm-qwen` Pod が 2 つずつ起動します。各 Pod は v6e 1 チップだけを要求します。
 
@@ -221,13 +223,85 @@ kubectl get httproute qwen-route --context=$CTX_ASIA
 - 同じ Gateway IP に対する推論リクエストが EU 側へ流れることを確認
 - Asia 側の `vllm-qwen` を復旧
 
-### **4. クリーンアップ**
+### **4. リージョン分散をメトリクスで確認する**
 
-不要な費用が発生しないように、検証後はリソースを削除してください。
+通常時に Gateway がどのリージョン、どの Pod にリクエストを流したかはレスポンスだけでは見えません。次のスクリプトは、Gateway にリクエストを送る前後で各 vLLM Pod の Prometheus メトリクスを読み、リクエストカウンタの差分を表示します。
+
+```bash
+REQUESTS_PER_REGION=10 MAX_TOKENS=16 ./regional-distribution-test.sh
+```
+
+出力の `Cluster totals` で `asia-northeast1` と `europe-west4` の両方に差分が出ていれば、マルチクラスタ Gateway 経由の推論リクエストが複数リージョンの backend pool に到達しています。片方だけに寄る場合は、Gateway が正常系では近いリージョンを優先している、または `kv-cache` custom metric の値が十分に偏っていない可能性があります。より強いシグナルを見る場合は、`REQUESTS_PER_REGION` を増やしてください。
+
+## **Lab04. シングルクラスタ Inference Gateway で追加機能を試す（任意）**
+
+<walkthrough-tutorial-duration duration=20></walkthrough-tutorial-duration>
+
+Body-Based Routing、Prefix/KV cache の観察、LoRA adapter のロードなどは、マルチクラスタ Gateway よりもシングルクラスタの GKE Inference Gateway で切り分けたほうが確認しやすい機能です。Lab02 まで完了して `qwen-pool` が作成済みの状態で実行します。
+
+### **1. シングルクラスタ Gateway を作成する**
+
+```bash
+cd "$LAB_DIR/lab-04"
+export SINGLE_GATEWAY_REGION=asia-northeast1
+export SINGLE_GATEWAY_ZONE=asia-northeast1-b
+export SINGLE_GATEWAY_CLUSTER=gke-asia-northeast1
+export SINGLE_CTX="gke_${PROJECT_ID}_${SINGLE_GATEWAY_ZONE}_${SINGLE_GATEWAY_CLUSTER}"
+
+./configure-single-gateway.sh
+./test-single-gateway-features.sh
+```
+
+この Gateway は `gke-l7-rilb` を使い、Asia クラスタ内の `InferencePool/qwen-pool` に直接ルーティングします。Lab03 の cross-region Gateway とは別 IP なので、両方を同時に配置できます。
+
+### **2. Body-Based Routing を有効化する**
+
+```bash
+ENABLE_BBR=true ./configure-single-gateway.sh
+EXPECT_BBR=true ./test-single-gateway-features.sh
+```
+
+Body-Based Routing を有効にすると、OpenAI 互換リクエスト本文の `model` から `X-Gateway-Model-Name` が注入されます。このラボの `body-routing-route.yaml` は `Qwen/Qwen3-8B` だけを通すため、存在しないモデル名は vLLM に到達する前に失敗します。
+
+### **3. Prefix/KV cache の挙動を観察する**
+
+```bash
+PREFIX_ROUNDS=8 ./test-single-gateway-features.sh
+```
+
+同じ prefix を持つリクエストを繰り返し、Pod の `/metrics` とレスポンスタイムを比較します。マルチクラスタ側のリージョン分散を確認したい場合は、Lab03 の `regional-distribution-test.sh` を使います。
+
+### **4. LoRA adapter を試す**
+
+LoRA は vLLM を LoRA 有効で起動し、adapter を vLLM コンテナから見えるパスに置く必要があります。adapter の準備ができている場合は、次のように vLLM を再デプロイします。
+
+```bash
+cd "$LAB_DIR/lab-02"
+export VLLM_EXTRA_ARGS="--enable-lora --max-loras 4 --max-lora-rank 64"
+export VLLM_ALLOW_RUNTIME_LORA_UPDATING=True
+envsubst '${PROJECT_ID} ${VLLM_EXTRA_ARGS} ${VLLM_ALLOW_RUNTIME_LORA_UPDATING}' < workload_template.yaml > workload.yaml
+./deploy-workload.sh
+```
+
+その後、adapter をロードして疎通確認します。
+
+```bash
+cd "$LAB_DIR/lab-04"
+export LORA_NAME="my-qwen-lora"
+export LORA_PATH="/data/lora/my-qwen-lora"
+./load-lora-adapter.sh
+```
+
+Body-Based Routing と LoRA を同時に使う場合は、adapter のモデル名も `HTTPRoute` の header match に追加するか、一時的に default route に戻してください。
+
+## **クリーンアップ（参考）**
+
+Qwiklabs ではラボ終了時に一時プロジェクトが削除されるため、通常は個別のクリーンアップ操作は不要です。手元の検証用プロジェクトで実行した場合だけ、次の手順を使ってください。
 
 まず Kubernetes ワークロードと Gateway 関連リソースを削除します。
 
 ```bash
+cd "$LAB_DIR/lab-03"
 ./cleanup-workloads.sh
 ```
 
