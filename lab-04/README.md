@@ -22,6 +22,20 @@ export SINGLE_CTX="gke_${PROJECT_ID}_${SINGLE_GATEWAY_ZONE}_${SINGLE_GATEWAY_CLU
 
 This creates a regional internal Gateway with `gatewayClassName: gke-l7-rilb` and routes traffic to the local `InferencePool/qwen-pool`.
 
+Expected output:
+
+```text
+=== Base request ===
+Expected: HTTP 200 from Gateway -> InferencePool -> vLLM.
+HTTP 200
+{
+  "model": "Qwen/Qwen3-8B",
+  "choices": [...]
+}
+```
+
+If you see `HTTP 503` immediately after creating the Gateway, wait 1-3 minutes and rerun the test. The regional internal Gateway sometimes needs a little time before backend health is reflected.
+
 ## Body-Based Routing
 
 Body-Based Routing reads the OpenAI request body and injects routing headers such as `X-Gateway-Model-Name`. Enable it when creating the single Gateway:
@@ -33,12 +47,31 @@ EXPECT_BBR=true ./test-single-gateway-features.sh
 
 With BBR enabled, `single-qwen-route` only accepts requests whose body model is `Qwen/Qwen3-8B`. A bogus model name should fail before it reaches vLLM.
 
+Expected negative check:
+
+```text
+=== Body-Based Routing negative check ===
+Expected: HTTP 404 because the route only accepts X-Gateway-Model-Name=Qwen/Qwen3-8B.
+HTTP 404
+BBR fail-closed check passed.
+```
+
 ## Prefix/KV cache behavior
 
 The Inference Gateway endpoint picker can use request characteristics and backend metrics such as KV-cache usage to pick an endpoint. This lab exposes the relevant vLLM metrics and sends repeated-prefix prompts:
 
 ```bash
 PREFIX_ROUNDS=8 ./test-single-gateway-features.sh
+```
+
+Expected output is mainly a health and observation signal:
+
+```text
+=== Repeated-prefix requests for KV/prefix-cache behavior ===
+Expected: each round returns HTTP 200. Elapsed seconds are observational, not a strict pass/fail signal.
+round=1 http=200 elapsed_seconds=1
+round=2 http=200 elapsed_seconds=0
+round=3 http=200 elapsed_seconds=0
 ```
 
 For regional distribution on the multi-cluster Gateway, use:
@@ -49,6 +82,16 @@ REQUESTS_PER_REGION=10 MAX_TOKENS=16 ./regional-distribution-test.sh
 ```
 
 That script compares per-pod vLLM counters before and after Gateway traffic.
+
+Example distribution result:
+
+```text
+Cluster totals:
+  asia-northeast1   delta=   10.00
+  europe-west4      delta=   10.00
+```
+
+`delta` is the increase in successful vLLM requests during the run. A `kv=0.000000` value is fine for short prompts; the regional script is primarily checking that requests reach both backend pools.
 
 ## LoRA adapter checks
 

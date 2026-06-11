@@ -60,11 +60,14 @@ resource "google_gke_hub_feature" "mcs" {
 }
 
 resource "google_project_iam_member" "mcs_importer_network_viewer" {
-  for_each   = local.mcs_importer_members
-  project    = var.project_id
-  role       = "roles/compute.networkViewer"
-  member     = each.value
-  depends_on = [google_gke_hub_feature.mcs]
+  for_each = local.mcs_importer_members
+  project  = var.project_id
+  role     = "roles/compute.networkViewer"
+  member   = each.value
+  depends_on = [
+    google_gke_hub_feature.mcs,
+    time_sleep.wait_for_workload_identity_pool
+  ]
 }
 
 resource "google_gke_hub_feature" "ingress" {

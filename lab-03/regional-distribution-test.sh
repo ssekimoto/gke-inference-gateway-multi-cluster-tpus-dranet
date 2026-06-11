@@ -262,4 +262,6 @@ fi
 
 echo
 echo "If deltas appear in both regions, requests reached both regional backend pools."
+echo "Reading the table: delta is the increase in successful vLLM requests per pod during this run."
+echo "A kv value of 0.000000 is OK for short prompts; this check is mainly for regional reachability."
 echo "For a stronger signal, rerun with REQUESTS_PER_REGION=10 MAX_TOKENS=16."

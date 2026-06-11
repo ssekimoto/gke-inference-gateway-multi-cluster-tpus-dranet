@@ -77,6 +77,21 @@ terraform apply -auto-approve
 
 クラスタと TPU ノードプールの作成には 10〜15 分ほどかかることがあります。各リージョンに `ct6e-standard-1t` ノードを 2 台作るため、リージョンあたり 2 チップ、全体で 4 チップを消費します。
 
+初回の `terraform apply` で、GKE/Fleet 側の反映待ちにより次のようなエラーが出ることがあります。
+
+```text
+Identity Pool does not exist (...svc.id.goog)
+GKE service agent is still being created or replicated
+```
+
+クラスタと TPU node pool が作成済みであれば、多くの場合は一時的な IAM / service agent の反映待ちです。1〜2 分待ってから、同じコマンドをもう一度実行してください。
+
+```bash
+terraform apply -auto-approve
+```
+
+成功時は `Apply complete!` で終了します。実測では再実行時に残りの IAM と Fleet 関連リソースだけが作成されました。
+
 ### **3. 作成結果を確認する**
 
 ```bash
@@ -93,6 +108,24 @@ terraform apply -auto-approve
 - cross-region 用と regional 用の proxy subnet
 - `${PROJECT_ID}-qwen-weights` Cloud Storage バケット
 - `gcs-fuse-sa` サービスアカウント
+
+出力例です。IP アドレスは環境ごとに変わります。
+
+```text
+NAME                     LOCATION           MASTER_VERSION      STATUS
+gke-asia-northeast1      asia-northeast1-b  ...                 RUNNING
+gke-europe-west4         europe-west4-a     ...                 RUNNING
+
+qwen-gateway-ip-asia-northeast1          10.0.2.3
+qwen-single-gateway-ip-asia-northeast1   10.0.2.2
+qwen-gateway-ip-europe-west4             10.0.1.2
+qwen-single-gateway-ip-europe-west4      10.0.1.3
+
+multiclusteringress:
+  state:
+    code: OK
+    description: Ready to use
+```
 
 ### **4. Fleet 登録を確認する**
 
@@ -150,6 +183,18 @@ kubectl get job model-downloader --context=$CTX_ASIA -o wide
 
 `Download complete!` と表示されたら、`Ctrl+C` でログ表示を終了します。
 
+公開 GCS ミラーを使った場合の出力例です。
+
+```text
+Copying Qwen3-8B from public GCS mirror: gs://YOUR_PUBLIC_BUCKET/qwen3-8b
+Target bucket: gs://${PROJECT_ID}-qwen-weights
+Copying gs://.../model-00005-of-00005.safetensors to gs://${PROJECT_ID}-qwen-weights/model-00005-of-00005.safetensors
+Average throughput: 59.6MiB/s
+Download complete! Safe to proceed.
+```
+
+別タブの `gcloud storage du` は、コピー完了直前でも先に shard が見えることがあります。`model-00001-of-00005.safetensors` から `model-00005-of-00005.safetensors` までが見え、合計が約 16 GB になっていれば、ほぼ完了状態です。
+
 ### **4. vLLM ワークロードを両クラスタにデプロイする**
 
 ```bash
@@ -163,6 +208,13 @@ envsubst '${PROJECT_ID}' < workload_template.yaml > workload.yaml
 for CTX in $CTX_EU $CTX_ASIA; do
   kubectl rollout status deployment/vllm-qwen --timeout=15m --context=$CTX
 done
+```
+
+成功時の例です。
+
+```text
+deployment "vllm-qwen" successfully rolled out
+deployment "vllm-qwen" successfully rolled out
 ```
 
 TPU ファブリック用のネットワークインターフェースが割り当てられていることを確認します。
@@ -207,6 +259,13 @@ kubectl get gateway cross-region-gateway --context=$CTX_ASIA
 kubectl get httproute qwen-route --context=$CTX_ASIA
 ```
 
+Gateway が利用可能になると、`PROGRAMMED` が `True` になります。
+
+```text
+NAME                   CLASS                                      ADDRESS   PROGRAMMED
+cross-region-gateway   gke-l7-cross-regional-internal-managed-mc  10.0.2.3  True
+```
+
 ### **3. フェイルオーバーをテストする**
 
 ```bash
@@ -223,6 +282,24 @@ kubectl get httproute qwen-route --context=$CTX_ASIA
 - 同じ Gateway IP に対する推論リクエストが EU 側へ流れることを確認
 - Asia 側の `vllm-qwen` を復旧
 
+成功時は、通常時とフェイルオーバー時の両方で OpenAI 互換の JSON が返ります。フェイルオーバー確認では Asia 側の Pod が 0 になっていても、同じ Asia Gateway IP へのリクエストが EU 側の TPU に届きます。
+
+```text
+=== PHASE 6: FAILOVER TEST (Asia Client -> EU TPUs) ===
+Request is actively being rerouted to Europe. Expecting full JSON response...
+{
+  "model": "Qwen/Qwen3-8B",
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "The capital of Germany is Berlin."
+      }
+    }
+  ]
+}
+```
+
 ### **4. リージョン分散をメトリクスで確認する**
 
 通常時に Gateway がどのリージョン、どの Pod にリクエストを流したかはレスポンスだけでは見えません。次のスクリプトは、Gateway にリクエストを送る前後で各 vLLM Pod の Prometheus メトリクスを読み、リクエストカウンタの差分を表示します。
@@ -232,6 +309,22 @@ REQUESTS_PER_REGION=10 MAX_TOKENS=16 ./regional-distribution-test.sh
 ```
 
 出力の `Cluster totals` で `asia-northeast1` と `europe-west4` の両方に差分が出ていれば、マルチクラスタ Gateway 経由の推論リクエストが複数リージョンの backend pool に到達しています。片方だけに寄る場合は、Gateway が正常系では近いリージョンを優先している、または `kv-cache` custom metric の値が十分に偏っていない可能性があります。より強いシグナルを見る場合は、`REQUESTS_PER_REGION` を増やしてください。
+
+実測例です。`delta` は、テスト前後で増えた vLLM の成功リクエスト数です。
+
+```text
+=== Regional distribution result ===
+asia-northeast1   vllm-qwen-7855dc88f4-5x5dm    vllm:request_success_total   delta=    4.00 kv=0.000000->0.000000 waiting=0.000000 running=0.000000
+asia-northeast1   vllm-qwen-7855dc88f4-vx2hk    vllm:request_success_total   delta=    6.00 kv=0.000000->0.000000 waiting=0.000000 running=0.000000
+europe-west4      vllm-qwen-7855dc88f4-l5dlv    vllm:request_success_total   delta=    6.00 kv=0.000000->0.000000 waiting=0.000000 running=0.000000
+europe-west4      vllm-qwen-7855dc88f4-tzv75    vllm:request_success_total   delta=    4.00 kv=0.000000->0.000000 waiting=0.000000 running=0.000000
+
+Cluster totals:
+  asia-northeast1   delta=   10.00
+  europe-west4      delta=   10.00
+```
+
+短い prompt では `kv=0.000000` のままでも異常ではありません。このテストでは KV cache の圧力ではなく、Gateway から各リージョンの backend pool にリクエストが到達したことを確認しています。
 
 ## **Lab04. シングルクラスタ Inference Gateway で追加機能を試す（任意）**
 
@@ -254,6 +347,18 @@ export SINGLE_CTX="gke_${PROJECT_ID}_${SINGLE_GATEWAY_ZONE}_${SINGLE_GATEWAY_CLU
 
 この Gateway は `gke-l7-rilb` を使い、Asia クラスタ内の `InferencePool/qwen-pool` に直接ルーティングします。Lab03 の cross-region Gateway とは別 IP なので、両方を同時に配置できます。
 
+Gateway 作成直後に `HTTP 503` が返る場合は、backend health の反映待ちのことがあります。1〜3 分待ってから `./test-single-gateway-features.sh` を再実行してください。正常時は base request が `HTTP 200` になります。
+
+```text
+=== Base request ===
+Expected: HTTP 200 from Gateway -> InferencePool -> vLLM.
+HTTP 200
+{
+  "model": "Qwen/Qwen3-8B",
+  "choices": [...]
+}
+```
+
 ### **2. Body-Based Routing を有効化する**
 
 ```bash
@@ -263,6 +368,14 @@ EXPECT_BBR=true ./test-single-gateway-features.sh
 
 Body-Based Routing を有効にすると、OpenAI 互換リクエスト本文の `model` から `X-Gateway-Model-Name` が注入されます。このラボの `body-routing-route.yaml` は `Qwen/Qwen3-8B` だけを通すため、存在しないモデル名は vLLM に到達する前に失敗します。
 
+BBR 有効時の negative check では、存在しないモデル名が `HTTP 404` で失敗すれば期待どおりです。
+
+```text
+=== Body-Based Routing negative check ===
+HTTP 404
+BBR fail-closed check passed.
+```
+
 ### **3. Prefix/KV cache の挙動を観察する**
 
 ```bash
@@ -271,9 +384,18 @@ PREFIX_ROUNDS=8 ./test-single-gateway-features.sh
 
 同じ prefix を持つリクエストを繰り返し、Pod の `/metrics` とレスポンスタイムを比較します。マルチクラスタ側のリージョン分散を確認したい場合は、Lab03 の `regional-distribution-test.sh` を使います。
 
+この出力は合否判定というより観察用です。毎回 `HTTP 200` が返り、Pod が Ready のままであれば、シングル Gateway 経由の推論経路は正常です。
+
+```text
+round=1 http=200 elapsed_seconds=1
+round=2 http=200 elapsed_seconds=0
+round=3 http=200 elapsed_seconds=0
+```
+
 ### **4. LoRA adapter を試す**
 
 LoRA は vLLM を LoRA 有効で起動し、adapter を vLLM コンテナから見えるパスに置く必要があります。adapter の準備ができている場合は、次のように vLLM を再デプロイします。
+このラボには LoRA adapter の実体は同梱していません。講師または受講者が adapter artifact を用意できた場合だけ、この手順を実行してください。
 
 ```bash
 cd "$LAB_DIR/lab-02"

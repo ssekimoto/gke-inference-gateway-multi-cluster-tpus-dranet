@@ -55,27 +55,36 @@ echo "Testing single Gateway at http://${SINGLE_GATEWAY_IP}"
 echo
 
 echo "=== Base request ==="
+echo "Expected: HTTP 200 from Gateway -> InferencePool -> vLLM."
 status="$(post_chat "$MODEL_NAME" "Say hello in one short sentence." "/tmp/single-gateway-base.json")"
 cat_status="$status"
 echo "HTTP $cat_status"
-kubectl exec "$CLIENT_POD" --context="$SINGLE_CTX" -- cat /tmp/single-gateway-base.json | jq . || true
+if [[ "$cat_status" == "200" ]]; then
+  kubectl exec "$CLIENT_POD" --context="$SINGLE_CTX" -- cat /tmp/single-gateway-base.json | jq . || true
+else
+  echo "WARN: expected HTTP 200. If the Gateway was just created, wait 1-3 minutes for backend health propagation and rerun this script."
+  kubectl exec "$CLIENT_POD" --context="$SINGLE_CTX" -- cat /tmp/single-gateway-base.json || true
+fi
 
 if [[ "$EXPECT_BBR" == "true" ]]; then
   echo
   echo "=== Body-Based Routing negative check ==="
-  echo "A bogus model name should fail at routing time because the route only accepts X-Gateway-Model-Name=${MODEL_NAME}."
+  echo "Expected: HTTP 404 because the route only accepts X-Gateway-Model-Name=${MODEL_NAME}."
   invalid_status="$(post_chat "not-a-routed-model" "This should not reach vLLM when BBR is active." "/tmp/single-gateway-invalid.json" || true)"
   echo "HTTP $invalid_status"
-  if [[ "$invalid_status" == "404" || "$invalid_status" == "503" ]]; then
+  if [[ "$invalid_status" == "404" ]]; then
     echo "BBR fail-closed check passed."
+  elif [[ "$invalid_status" == "503" ]]; then
+    echo "WARN: got HTTP 503. This can happen while Gateway backend health is still propagating; wait and rerun before debugging BBR."
   else
-    echo "WARN: expected HTTP 404 or 503. Inspect the route and body-based-router deployment."
+    echo "WARN: expected HTTP 404. Inspect the route and body-based-router deployment."
     kubectl exec "$CLIENT_POD" --context="$SINGLE_CTX" -- cat /tmp/single-gateway-invalid.json || true
   fi
 fi
 
 echo
 echo "=== Repeated-prefix requests for KV/prefix-cache behavior ==="
+echo "Expected: each round returns HTTP 200. Elapsed seconds are observational, not a strict pass/fail signal."
 i=1
 while [[ "$i" -le "$PREFIX_ROUNDS" ]]; do
   prompt="Use this exact repeated prefix: GKE inference gateway cache demo 2026. Round ${i}. Answer with a short fact about Tokyo."
